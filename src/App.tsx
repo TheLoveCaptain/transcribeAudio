@@ -34,7 +34,7 @@ const allowedAudioTypes = [
 function App() {
   const [files, setFiles] = useState<AudioFile[]>([]);
   const [polling, setPolling] = useState(false);
-  const [apiKey, setApiKey] = useState('');
+  const apiKey = import.meta.env.VITE_SONIOX_API_KEY || '';
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -252,7 +252,7 @@ function App() {
       return;
     }
 
-    setFiles((prev) => prev.map((item) => item.id === file.id ? { ...item, fileId: undefined, transcriptionId: undefined, transcriptionStatus: undefined, transcriptText: undefined, uploadStatus: 'ready' } : item));
+    setFiles((prev) => prev.filter((item) => item.id !== file.id));
     setSuccessMessage(`Deleted Soniox file for ${file.filename}`);
   };
 
@@ -265,6 +265,60 @@ function App() {
     document.body.appendChild(link);
     link.click();
     link.remove();
+  };
+
+  const saveAllTranscripts = () => {
+    const completedFiles = files.filter((file) => file.transcriptText);
+    if (!completedFiles.length) return;
+
+    const content = completedFiles
+      .map((file) => `=== ${file.filename} ===\n${file.transcriptText}`)
+      .join('\n\n');
+
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `all-transcripts.txt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const deleteAllSonioxFiles = async () => {
+    if (!apiKey) {
+      setError('Soniox API key is not configured in .env');
+      return;
+    }
+
+    setError(null);
+    const deletableFiles = files.filter((file) => file.fileId);
+    const remainingFiles: AudioFile[] = [];
+    let anyFailed = false;
+
+    for (const file of deletableFiles) {
+      try {
+        const response = await fetch(`${baseUrl}/files/${file.fileId}`, {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${apiKey}`
+          }
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          anyFailed = true;
+          setError(body?.message || `Failed to delete ${file.filename}`);
+        }
+      } catch (err) {
+        anyFailed = true;
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    if (!anyFailed) {
+      setSuccessMessage('Deleted all Soniox files from the list.');
+    }
+
+    setFiles((prev) => prev.filter((file) => !file.fileId));
   };
 
   const clearAll = () => {
@@ -287,14 +341,6 @@ function App() {
       </header>
 
       <section className="controls-card">
-        <label className="field-label">Soniox API Key</label>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
-          placeholder="Paste your Soniox API key here"
-        />
-
         <div className="button-row">
           <label className="upload-button">
             Select audio files
@@ -308,10 +354,22 @@ function App() {
           <button className="primary-button" onClick={submitForTranscription} disabled={!files.length || !apiKey || files.every((file) => file.transcriptionId)}>
             Submit for transcription
           </button>
+          <button className="secondary-button" onClick={saveAllTranscripts} disabled={!files.some((file) => file.transcriptText)}>
+            Download all transcripts
+          </button>
+          <button className="secondary-button danger" onClick={deleteAllSonioxFiles} disabled={!files.some((file) => file.fileId)}>
+            Delete all Soniox files
+          </button>
           <button className="secondary-button" onClick={clearAll}>
             Clear all
           </button>
         </div>
+
+        {!apiKey && (
+          <div className="toast toast-error">
+            No Soniox API key found. Add `VITE_SONIOX_API_KEY=your_api_key` to a `.env` file.
+          </div>
+        )}
 
         <p className="meta-text">{selectedCount} file{selectedCount === 1 ? '' : 's'} selected</p>
         {error && <div className="toast toast-error">{error}</div>}
