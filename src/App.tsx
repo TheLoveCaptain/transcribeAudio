@@ -1,3 +1,4 @@
+import JSZip from 'jszip';
 import { useEffect, useMemo, useState } from 'react';
 
 type JobStatus = 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
@@ -37,6 +38,9 @@ function App() {
   const apiKey = import.meta.env.VITE_SONIOX_API_KEY || '';
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(['en']);
+  const [restrictToOneLanguage, setRestrictToOneLanguage] = useState(true);
+  const [speakerDiarization, setSpeakerDiarization] = useState(true);
 
   useEffect(() => {
     if (!polling) return;
@@ -46,6 +50,10 @@ function App() {
 
     return () => window.clearInterval(interval);
   }, [polling, files]);
+
+  useEffect(() => {
+    setRestrictToOneLanguage(selectedLanguages.length === 1);
+  }, [selectedLanguages]);
 
   const fileInputAccept = useMemo(
     () => allowedAudioTypes.join(','),
@@ -107,12 +115,18 @@ function App() {
   };
 
   const createTranscription = async (fileId: string, filename: string) => {
-    const payload = {
-      model: 'stt-async-preview',
+    const payload: Record<string, any> = {
+      model: 'stt-async-v5',
       file_id: fileId,
       filename,
-      client_reference_id: filename
+      client_reference_id: filename,
+      language_hints: selectedLanguages,
+      enable_speaker_diarization: speakerDiarization
     };
+
+    if (restrictToOneLanguage && selectedLanguages.length === 1) {
+      payload.language_hints_strict = true;
+    }
 
     const response = await fetch(`${baseUrl}/transcriptions`, {
       method: 'POST',
@@ -267,18 +281,19 @@ function App() {
     link.remove();
   };
 
-  const saveAllTranscripts = () => {
+  const saveAllTranscripts = async () => {
     const completedFiles = files.filter((file) => file.transcriptText);
     if (!completedFiles.length) return;
 
-    const content = completedFiles
-      .map((file) => `=== ${file.filename} ===\n${file.transcriptText}`)
-      .join('\n\n');
+    const zip = new JSZip();
+    completedFiles.forEach((file) => {
+      zip.file(`${file.filename}.txt`, file.transcriptText || '');
+    });
 
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const content = await zip.generateAsync({ type: 'blob' });
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `all-transcripts.txt`;
+    link.href = URL.createObjectURL(content);
+    link.download = 'all-transcripts.zip';
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -292,7 +307,6 @@ function App() {
 
     setError(null);
     const deletableFiles = files.filter((file) => file.fileId);
-    const remainingFiles: AudioFile[] = [];
     let anyFailed = false;
 
     for (const file of deletableFiles) {
@@ -363,6 +377,40 @@ function App() {
           <button className="secondary-button" onClick={clearAll}>
             Clear all
           </button>
+        </div>
+
+        <div className="settings-card">
+          <label className="field-label">Language hints</label>
+          <select
+            multiple
+            value={selectedLanguages}
+            onChange={(event) => {
+              const values = Array.from(event.target.selectedOptions, (opt) => opt.value);
+              setSelectedLanguages(values);
+            }}
+          >
+            <option value="en">en</option>
+            <option value="es">es</option>
+          </select>
+
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={restrictToOneLanguage}
+              disabled={selectedLanguages.length !== 1}
+              onChange={(event) => setRestrictToOneLanguage(event.target.checked)}
+            />
+            Restrict to 1 language
+          </label>
+
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={speakerDiarization}
+              onChange={(event) => setSpeakerDiarization(event.target.checked)}
+            />
+            Speaker diarization
+          </label>
         </div>
 
         {!apiKey && (
