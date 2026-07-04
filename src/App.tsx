@@ -397,17 +397,6 @@ function App() {
     link.remove();
   };
 
-  const saveTranscriptJson = (file: AudioFile) => {
-    if (!file.rawTranscriptPayload) return;
-    const blob = new Blob([JSON.stringify(file.rawTranscriptPayload, null, 2)], { type: 'application/json;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${file.filename}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-  };
-
   const saveAllTranscripts = async () => {
     const completedFiles = files.filter((file) => file.transcriptText);
     if (!completedFiles.length) return;
@@ -567,14 +556,9 @@ function App() {
                 </div>
                 <div className="file-actions">
                   {file.transcriptText && (
-                    <>
-                      <button className="small-button" onClick={() => saveTranscript(file)}>
-                        Download transcript
-                      </button>
-                      <button className="small-button" onClick={() => saveTranscriptJson(file)}>
-                        Save JSON debug
-                      </button>
-                    </>
+                    <button className="small-button" onClick={() => saveTranscript(file)}>
+                      Download transcript
+                    </button>
                   )}
                   {file.transcriptionStatus === 'completed' && file.fileId && (
                     <button className="small-button danger" onClick={() => deleteSonioxFile(file)}>

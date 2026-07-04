@@ -77,6 +77,54 @@ h1 {
   font-weight: 600;
 }
 
+.settings-card {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #f8faff, #f3f4ff);
+  border: 1px solid #e5e7eb;
+  display: grid;
+  gap: 14px;
+}
+
+.settings-card select,
+.settings-card input[type='checkbox'] {
+  accent-color: #4338ca;
+}
+
+.settings-card select {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid #d1d5db;
+  background: white;
+  color: #111827;
+}
+
+.settings-card select:focus {
+  border-color: #6366f1;
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.12);
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid #e5e7eb;
+  min-height: 48px;
+}
+
+.checkbox-field input {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
 input[type='password'] {
   width: 100%;
   min-height: 48px;
@@ -271,7 +319,21 @@ button:disabled {
     align-items: stretch;
   }
 
+  .controls-card,
+  .file-list-card,
+  .app-header {
+    padding: 20px;
+  }
+
   .file-row {
     padding: 16px;
+  }
+
+  .settings-card {
+    padding: 14px;
+  }
+
+  .checkbox-field {
+    padding: 11px 12px;
   }
 }
