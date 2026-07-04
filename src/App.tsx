@@ -12,6 +12,7 @@ type AudioFile = {
   transcriptionId?: string;
   transcriptionStatus?: JobStatus;
   transcriptText?: string;
+  rawTranscriptPayload?: Record<string, any>;
   error?: string;
 };
 
@@ -146,6 +147,120 @@ function App() {
     return body.id as string;
   };
 
+  const parseTranscriptResponse = async (response: Response) => {
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      return response.json();
+    }
+
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { text };
+    }
+  };
+
+  const formatTranscriptText = (transcriptBody: any) => {
+    if (!transcriptBody) return '';
+
+    const normalizeSpeaker = (speaker: unknown, fallback = 'Speaker 1') => {
+      if (speaker == null || speaker === '') return fallback;
+      if (typeof speaker === 'number') return `Speaker ${speaker}`;
+      const normalized = String(speaker).trim();
+      if (/^speaker\s*\d+/i.test(normalized)) return normalized;
+      if (/^\d+$/.test(normalized)) return `Speaker ${normalized}`;
+      return `Speaker ${normalized}`;
+    };
+
+    const getSegmentText = (segment: any) => {
+      return String(segment.text ?? segment.transcript ?? segment.content ?? '').trim();
+    };
+
+    const segments = transcriptBody.segments ?? transcriptBody.speaker_segments ?? transcriptBody.speaker_labels;
+    if (Array.isArray(segments) && segments.length > 0) {
+      const formatted = segments
+        .map((segment: any) => {
+          const speaker = normalizeSpeaker(segment.speaker ?? segment.speaker_label ?? segment.speaker_id ?? segment.speakerId ?? segment.speakerLabel);
+          const text = getSegmentText(segment);
+          return text ? `${speaker}: ${text}` : '';
+        })
+        .filter(Boolean)
+        .join('\n\n');
+      if (formatted) return formatted;
+    }
+
+    if (Array.isArray(transcriptBody.tokens) && transcriptBody.tokens.length > 0) {
+      const blocks: string[] = [];
+      let currentSpeaker: string | null = null;
+      let currentText = '';
+
+      const flushBlock = () => {
+        if (currentSpeaker && currentText.trim()) {
+          blocks.push(`${normalizeSpeaker(currentSpeaker)}: ${currentText.trim()}`);
+        }
+        currentSpeaker = null;
+        currentText = '';
+      };
+
+      const appendToken = (tokenText: string) => {
+        const normalizedToken = String(tokenText ?? '');
+        if (!normalizedToken) return;
+
+        if (!currentText) {
+          currentText = normalizedToken.trimStart();
+          return;
+        }
+
+        currentText += normalizedToken;
+      };
+
+      transcriptBody.tokens.forEach((token: any) => {
+        const tokenText = String(token.text ?? token.transcript ?? token.content ?? '');
+        if (!tokenText) return;
+
+        const speaker = token.speaker ?? token.speaker_id ?? token.speakerLabel ?? token.speaker_label ?? token.speakerId;
+        const speakerKey = speaker == null ? null : String(speaker);
+
+        if (currentSpeaker === null) {
+          currentSpeaker = speakerKey;
+          appendToken(tokenText);
+          return;
+        }
+
+        if (speakerKey === currentSpeaker) {
+          appendToken(tokenText);
+          return;
+        }
+
+        flushBlock();
+        currentSpeaker = speakerKey;
+        appendToken(tokenText);
+      });
+
+      flushBlock();
+      if (blocks.length > 0) return blocks.join('\n\n');
+    }
+
+    if (Array.isArray(transcriptBody.words) && transcriptBody.words.length > 0) {
+      return transcriptBody.words
+        .map((word: any) => String(word.text ?? word).trim())
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+    }
+
+    if (typeof transcriptBody.text === 'string' && transcriptBody.text.trim()) {
+      return transcriptBody.text.trim();
+    }
+
+    if (typeof transcriptBody.transcript === 'string' && transcriptBody.transcript.trim()) {
+      return transcriptBody.transcript.trim();
+    }
+
+    return String(transcriptBody || '').trim();
+  };
+
   const submitForTranscription = async () => {
     if (!apiKey) {
       setError('Enter your Soniox API key first.');
@@ -225,10 +340,11 @@ function App() {
               }
             });
             if (transcriptResp.ok) {
-              const transcriptBody = await transcriptResp.json();
+              const transcriptBody = await parseTranscriptResponse(transcriptResp);
               updatedFiles[index] = {
                 ...updatedFiles[index],
-                transcriptText: transcriptBody.text || ''
+                transcriptText: formatTranscriptText(transcriptBody),
+                rawTranscriptPayload: transcriptBody
               };
             }
           }
@@ -276,6 +392,17 @@ function App() {
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = `${file.filename}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const saveTranscriptJson = (file: AudioFile) => {
+    if (!file.rawTranscriptPayload) return;
+    const blob = new Blob([JSON.stringify(file.rawTranscriptPayload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${file.filename}.json`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -440,9 +567,14 @@ function App() {
                 </div>
                 <div className="file-actions">
                   {file.transcriptText && (
-                    <button className="small-button" onClick={() => saveTranscript(file)}>
-                      Download transcript
-                    </button>
+                    <>
+                      <button className="small-button" onClick={() => saveTranscript(file)}>
+                        Download transcript
+                      </button>
+                      <button className="small-button" onClick={() => saveTranscriptJson(file)}>
+                        Save JSON debug
+                      </button>
+                    </>
                   )}
                   {file.transcriptionStatus === 'completed' && file.fileId && (
                     <button className="small-button danger" onClick={() => deleteSonioxFile(file)}>
